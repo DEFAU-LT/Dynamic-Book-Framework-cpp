@@ -1,6 +1,7 @@
 //setbooktexthook.cpp
 #include "SetBookTextHook.h" // For the Install() declaration
 #include "BookMenuWatcher.h"
+#include "BookMenuWatcher.h"
 #include "Utility.h"
 #include "PCH.h"
 
@@ -22,7 +23,8 @@ namespace SetBookTextHook {
         std::uintptr_t unknownV10 
     );
 
-    static SetBookTextThunk_t g_rawOriginalThunkPtr = nullptr;
+    // static SetBookTextThunk_t g_rawOriginalThunkPtr = nullptr;
+    void (*g_rawOriginalThunkPtr)(RE::GFxMovieView*, const char*, RE::FxResponseArgsBase*, std::uintptr_t) = nullptr;
 
     
     void Detour_SetBookTextThunk(
@@ -47,7 +49,7 @@ namespace SetBookTextHook {
                 std::string currentTitle = currentBookForDisplay->GetFullName() ? currentBookForDisplay->GetFullName() : "";
                 logger::info("SetBookTextHook: Intercepted SetBookText for '{}' (FormID {:X})", currentTitle, currentFormID);
 
-                auto& textMap = BookMenuWatcher::GetSingleton()->dynamicBookTexts;
+                auto& textMap = DynamicBookFramework::BookMenuWatcher::GetSingleton()->dynamicBookTexts;
                 auto it = textMap.find(currentFormID);
 
                 if (it != textMap.end()) { // This IS one of our dynamic books
@@ -61,22 +63,6 @@ namespace SetBookTextHook {
                     if (concreteArgs && concreteArgs->size() >= 2) {
                         RE::GFxValue& bookTextValue = (*concreteArgs)[0]; 
                         // RE::GFxValue& isNoteValue = (*concreteArgs)[1]; // Original abNote flag
-
-                        // if (bookTextValue.IsString()) { // Check for narrow string first
-                        // const char* originalNarrowText = bookTextValue.GetString();
-                        // logger::info("Original Book Text (Narrow): \n---\n{}\n---", originalNarrowText ? originalNarrowText : "[[NULL NARROW STRING]]");
-                        // } else if (bookTextValue.IsStringW()) { // Check for wide string
-                        //     const wchar_t* originalWideText = bookTextValue.GetStringW();
-                        //     if (originalWideText) {
-                        //         // Convert wide string to UTF-8 for logging with spdlog/fmt
-                        //         std::string originalUTF8Text = wstring_to_utf8(originalWideText); // Assuming you have this in Utility
-                        //         logger::info("Original Book Text (Wide, UTF-8): \n---\n{}\n---", originalUTF8Text);
-                        //     } else {
-                        //         logger::info("Original Book Text (Wide): [[NULL WIDE STRING]]");
-                        //     }
-                        // } else {
-                        //     logger::warn("Original book text (astrText) is not a recognized string type. Type: {}", static_cast<int>(bookTextValue.GetType()));
-                        // }
 
                         if (bookTextValue.IsString() || bookTextValue.IsStringW()) {
                             // Ensure customText is not empty, otherwise Scaleform might show nothing
@@ -94,9 +80,6 @@ namespace SetBookTextHook {
                         logger::warn("FxResponseArgs for SetBookText has unexpected argument count for FormID {:X}. Cannot modify.", currentFormID);
                     }
                 } else {
-                    //auto* concreteArgs = static_cast<RE::FxResponseArgsEx<2>*>(args);
-                    //RE::GFxValue& bookTextValue = (*concreteArgs)[0]; 
-                    //const char* originalNarrowText = bookTextValue.GetString();
                     // Not one of our dynamic books - do nothing, let original text pass through.
                     logger::info("SetBookTextHook: No dynamic text in map for FormID {:X} ('{}'). Original text will be used.", currentFormID, currentTitle);
                     //logger::info("Original Book Text (Narrow): \n---\n{}\n---", originalNarrowText ? originalNarrowText : "[[NULL NARROW STRING]]");

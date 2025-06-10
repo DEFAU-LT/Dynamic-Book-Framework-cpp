@@ -18,10 +18,9 @@ void SetupLog() {
     spdlog::flush_on(spdlog::level::trace);
 }
 
+namespace HtmlFormatText {
 
-namespace HtmlFormatText { // Or your preferred namespace
-
-    // Helper function to flush the accumulated paragraph content
+    // Helper function remains unchanged.
     void FlushTextParagraphBuffer_Chunk(std::stringstream& resultHtml, std::string& paragraphContent, const std::string& paragraphAlign) {
         if (!paragraphContent.empty()) {
             if (!paragraphContent.empty() && paragraphContent.back() == '\n') {
@@ -32,77 +31,89 @@ namespace HtmlFormatText { // Or your preferred namespace
         }
     }
 
-    // Helper to check if a line consists only of whitespace
-    bool IsLineEffectivelyBlank_Chunk(const std::string& line) {
-        return line.find_first_not_of(" \t\r\n") == std::string::npos;
-    }
-
-    // Helper to check for the image line marker.
-    bool IsAnImageLine_Chunk(const std::string& s_line) {
-        std::string trimmed_line = s_line;
-        size_t first_char = trimmed_line.find_first_not_of(" \t\r\n");
-        if (first_char == std::string::npos) { return false; }
-        trimmed_line = trimmed_line.substr(first_char);
-        if (trimmed_line.length() < 4) return false;
-        std::string prefix = trimmed_line.substr(0, 4);
-        std::transform(prefix.begin(), prefix.end(), prefix.begin(), 
-                       [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-        if (prefix == "<img") {
-            std::string lower_trimmed_line = trimmed_line;
-            std::transform(lower_trimmed_line.begin(), lower_trimmed_line.end(), lower_trimmed_line.begin(), 
-                           [](unsigned char c){ return static_cast<char>(std::tolower(c)); });
-            return lower_trimmed_line.find("src=") != std::string::npos;
-        }
-        return false;
-    }
-
-    // PROCESSES A CHUNK OF PLAIN TEXT - DOES NOT ADD GLOBAL <FONT> TAGS
+    // This is the main processing function with the new trimming logic.
     std::string ApplyGeneralBookMarkup_ProcessChunk(
         const std::string& plainTextChunk,
-        const std::string& defaultParagraphAlign ) { // Font face/size handled globally
+        const std::string& defaultParagraphAlign) {
 
         if (plainTextChunk.empty()) {
-            return ""; // Or "<p> </p>\n" if an empty chunk should still produce a paragraph
+            return "";
         }
 
         std::stringstream resultChunkHtml;
-        std::string currentTextParagraphContent; 
+        std::string currentTextParagraphContent;
         int consecutiveBlankLineCount = 0;
 
         std::istringstream plainTextStream(plainTextChunk);
         std::string line;
 
         while (std::getline(plainTextStream, line)) {
-            if (IsAnImageLine_Chunk(line)) { 
-                FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
-                resultChunkHtml << line << "\n"; // Output image line as-is (it's part of this "plain text" chunk)
-                consecutiveBlankLineCount = 0; 
-            } else { 
-                if (IsLineEffectivelyBlank_Chunk(line)) { 
-                    if (!currentTextParagraphContent.empty()) { 
-                        FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
-                    }
-                    consecutiveBlankLineCount++;
-                } else { 
-                    if (consecutiveBlankLineCount >= 2) { 
-                        FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
-                        resultChunkHtml << "[pagebreak]\n";
-                    }
-                    consecutiveBlankLineCount = 0; 
+            // --- NEW: Trim whitespace from the start and end of the line ---
+            size_t start = line.find_first_not_of(" \t\r\n");
+            std::string trimmedLine = (start == std::string::npos) ? "" : line.substr(start);
+            size_t end = trimmedLine.find_last_not_of(" \t\r\n");
+            trimmedLine = (end == std::string::npos) ? "" : trimmedLine.substr(0, end + 1);
+            // --- All subsequent checks will use 'trimmedLine' ---
 
-                    if (!currentTextParagraphContent.empty()) {
-                        currentTextParagraphContent += "\n"; 
-                    }
-                    currentTextParagraphContent += line; 
+            // PRIORITY 1: Check for our custom [IMG=...] tag on the trimmed line
+            if (trimmedLine.rfind("[IMG=", 0) == 0 && trimmedLine.back() == ']') {
+                FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
+
+                size_t contentStart = 5; // Length of "[IMG="
+                size_t contentLen = trimmedLine.length() - contentStart - 1;
+                std::string tagContent = trimmedLine.substr(contentStart, contentLen);
+
+                std::stringstream tagStream(tagContent);
+                std::string imagePath, widthStr, heightStr;
+
+                std::getline(tagStream, imagePath, '|');
+                std::getline(tagStream, widthStr, '|');
+                std::getline(tagStream, heightStr, '|');
+                
+                if (widthStr.empty()) widthStr = "290"; // Defaulting to your example's dimensions
+                if (heightStr.empty()) heightStr = "389";
+
+                std::replace(imagePath.begin(), imagePath.end(), '/', '\\');
+
+                resultChunkHtml << "<p align='center'><img src='img://" << imagePath << "' width='" << widthStr << "' height='" << heightStr << "'></p>\n";
+                
+                consecutiveBlankLineCount = 0;
+                continue;
+            }
+
+            // PRIORITY 2: Check for the explicit [pagebreak] marker
+            if (trimmedLine.rfind("[pagebreak]", 0) == 0) {
+                FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
+                resultChunkHtml << "<p>&nbsp;</p>\n";
+                consecutiveBlankLineCount = 0;
+                continue;
+            }
+
+            // PRIORITY 3: Handle normal text and blank lines
+            if (trimmedLine.empty()) {
+                if (!currentTextParagraphContent.empty()) {
+                    FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
                 }
+                consecutiveBlankLineCount++;
+            } else { 
+                if (consecutiveBlankLineCount >= 2 && !resultChunkHtml.str().empty()) {
+                    resultChunkHtml << "<p>&nbsp;</p>\n";
+                }
+                consecutiveBlankLineCount = 0;
+
+                if (!currentTextParagraphContent.empty()) {
+                    currentTextParagraphContent += "\n"; 
+                }
+                currentTextParagraphContent += trimmedLine; // Use the trimmed line
             }
         }
+        
         FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
         
         return resultChunkHtml.str();
     }
 
-}
+} // end namespace HtmlFormatText
 
 // Helper function for string to wstring conversion (UTF-8)
 std::wstring string_to_wstring(const std::string& str) {
@@ -190,3 +201,4 @@ std::optional<std::wstring> GetDynamicBookPathByTitle(const std::wstring& bookTi
     }
     return std::nullopt;
 }
+

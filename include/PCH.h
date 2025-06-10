@@ -4,6 +4,7 @@
 #include "RE/Skyrim.h"
 #include "REL/Relocation.h"
 #include "SKSE/SKSE.h"
+#include <SKSE/Impl/Stubs.h>
 
 
 // --- Logging (spdlog via CommonLibSSE) ---
@@ -18,6 +19,7 @@
 #include <thread> 
 #include <chrono>
 #include <shlobj.h>
+#include <mutex>
 
 // --- Formatting (Choose One - Add the include line here) ---
 // #include <spdlog/fmt/fmt.h> // Option 1: Bundled {fmt} (Recommended C++17+)

@@ -1,27 +1,39 @@
 
 #pragma once
-
 #include "PCH.h"
 
-class BookMenuWatcher : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
-public:
-    static BookMenuWatcher* GetSingleton()
-    {
-        static BookMenuWatcher singleton; // Create the single static instance the first time this is called
-        return &singleton; // Return the address of that single instance
-    }
+namespace DynamicBookFramework {
 
-    RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
-    // Static member to store dynamic book texts, keyed by FormID
-    static std::map<RE::FormID, std::string> dynamicBookTexts;
-private:
-    // Private constructor to ensure singleton pattern
-    BookMenuWatcher() = default;
-    // Delete copy and move constructors/assignment operators for singleton
-    BookMenuWatcher(const BookMenuWatcher&) = delete;
-    BookMenuWatcher(BookMenuWatcher&&) = delete;
-    BookMenuWatcher& operator=(const BookMenuWatcher&) = delete;
-    BookMenuWatcher& operator=(BookMenuWatcher&&) = delete;
-    
-};
+	class BookMenuWatcher : public RE::BSTEventSink<RE::MenuOpenCloseEvent> {
+	public:
+		static BookMenuWatcher* GetSingleton();
+		RE::BSEventNotifyControl ProcessEvent(const RE::MenuOpenCloseEvent* a_event, RE::BSTEventSource<RE::MenuOpenCloseEvent>*) override;
 
+		// --- Public methods for other components ---
+		bool ReloadAndCacheBook(RE::TESObjectBOOK* bookToReload);
+		std::optional<std::string> GetCachedHtmlForBook(RE::FormID bookFormID);
+
+		void SetLastOpenedBook(RE::FormID a_formID, const std::string& a_title);
+		RE::FormID GetLastOpenedDynamicBook();
+		std::string GetLastOpenedDynamicBookTitle();
+		void ClearLastOpenedBook();
+
+		std::map<RE::FormID, std::string> dynamicBookTexts;
+
+	private:
+		BookMenuWatcher() = default;
+		~BookMenuWatcher() override = default;
+		BookMenuWatcher(const BookMenuWatcher&) = delete;
+		BookMenuWatcher(BookMenuWatcher&&) = delete;
+		BookMenuWatcher& operator=(const BookMenuWatcher&) = delete;
+		BookMenuWatcher& operator=(BookMenuWatcher&&) = delete;
+        
+        // --- FIX: Added missing declaration for the helper function ---
+        void PrepareAndCacheBookContent(RE::TESObjectBOOK* bookToPrepare);
+        
+        // --- Private Members ---
+        RE::FormID _lastOpenedDynamicBookID{ 0 };
+        std::string _lastOpenedDynamicBookTitle;
+	};
+
+} // namespace DynamicBookFramework
