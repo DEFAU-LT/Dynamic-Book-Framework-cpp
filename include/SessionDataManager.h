@@ -76,6 +76,9 @@ namespace DynamicBookFramework {
         std::string _currentTimelineID;
 
         std::string _sessionParentSaveIdentifier;
+        
+        std::filesystem::path g_historyLogPath = "Data/SKSE/Plugins/_SaveHistory.log";
+
     };
 
 } // namespace DynamicBookFramework

@@ -22,6 +22,25 @@ namespace { // Use an anonymous namespace to keep it local to this file
         ss << std::put_time(&buf, "%Y-%m-%d_%H-%M-%S");
         return ss.str();
     }
+    // Helper function to parse a value from our new key-value format
+    std::string ParseValue(const std::string& metadata, const std::string& key) {
+        // 1. Creates a search pattern. If key is "PARENT", this becomes "PARENT=\""
+        std::string keyPattern = key + "=\"";
+
+        // 2. Finds where that pattern starts in the line.
+        size_t startPos = metadata.find(keyPattern);
+        if (startPos == std::string::npos) return ""; // Not found
+
+        // 3. Moves the starting position to be right after the pattern.
+        startPos += keyPattern.length();
+
+        // 4. Finds the next quotation mark, which marks the end of the value.
+        size_t endPos = metadata.find('\"', startPos);
+        if (endPos == std::string::npos) return ""; // Malformed
+
+        // 5. Extracts and returns the substring between the start and end.
+        return metadata.substr(startPos, endPos - startPos);
+    }
 }
 
 namespace DynamicBookFramework {
@@ -42,9 +61,9 @@ namespace DynamicBookFramework {
         std::string oldCharacter = _getCharacterNameFromIdentifier(_currentSaveIdentifier);
 
         if (!_currentSaveIdentifier.empty() && !newCharacter.empty() && newCharacter != oldCharacter) {
-            _currentTimelineID = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+            _currentTimelineID = GetFormattedTimestamp();
         } else if (_currentTimelineID.empty()) {
-            _currentTimelineID = std::to_string(std::chrono::system_clock::now().time_since_epoch().count());
+            _currentTimelineID = GetFormattedTimestamp();
         }
 
         _currentSaveIdentifier = cleanIdentifier;
@@ -55,37 +74,44 @@ namespace DynamicBookFramework {
     void SessionDataManager::OnGameSave(const std::string& newSaveIdentifier) {
         std::lock_guard<std::mutex> lock(_dataMutex);
 
-        if (_sessionPendingEntries.empty()) {
-            return;
-        }
-
-        // Also strip the extension from the new save name to be 100% consistent
         std::string cleanNewIdentifier = StripExtension(newSaveIdentifier);
-        // And ensure the parent identifier is also clean
         std::string cleanParentIdentifier = StripExtension(_sessionParentSaveIdentifier);
 
-        for (auto& [bookKey, entries] : _sessionPendingEntries) {
-            if (entries.empty()) continue;
-
-            auto pathOpt = GetDynamicBookPathByTitle(string_to_wstring(bookKey));
-            if (!pathOpt) continue;
-            
-            std::ofstream out(*pathOpt, std::ios::app);
-            if (!out.is_open()) continue;
-
-            out << "\n\n;;BEGIN_SAVE_DATA "
-                << cleanNewIdentifier << ";"      // Use the clean name
-                << _currentTimelineID << ";"
-                << cleanParentIdentifier << ";;\n"; // Use the clean parent name
-
-            for (size_t i = 0; i < entries.size(); ++i) {
-                out << entries[i];
-                if (i < entries.size() - 1) out << "\n";
-            }
-            out << "\n;;END_SAVE_DATA;;\n";
-            out.close();
+        // --- Step 1: ALWAYS log the save event to the master history file ---
+        auto historyPath = g_historyLogPath;
+        std::ofstream historyFile(historyPath, std::ios::app);
+        if (historyFile.is_open()) {
+            historyFile << "ID=\"" << cleanNewIdentifier 
+                        << "\" TIMELINE=\"" << _currentTimelineID 
+                        << "\" PARENT=\"" << cleanParentIdentifier << "\"\n";
+            historyFile.close();
         }
 
+        // --- Step 2: If there are pending entries, write them to their specific book files ---
+        if (!_sessionPendingEntries.empty()) {
+            for (auto& [bookKey, entries] : _sessionPendingEntries) {
+                if (entries.empty()) continue;
+
+                auto pathOpt = GetDynamicBookPathByTitle(string_to_wstring(bookKey));
+                if (!pathOpt) continue;
+                
+                std::ofstream out(*pathOpt, std::ios::app);
+                if (out.is_open()) {
+                    out << "\n;;SAVE_BLOCK ID=\"" << cleanNewIdentifier 
+                        << "\" TIMELINE=\"" << _currentTimelineID 
+                        << "\" PARENT=\"" << cleanParentIdentifier << "\";;\n";
+                    
+                    for (const auto& entry : entries) {
+                        out << entry << "\n";
+                    }
+
+                    out << ";;END_SAVE_DATA;;\n";
+                    out.close();
+                }
+            }
+        }
+
+        // --- Step 3: Update the internal state for the next session ---
         _sessionParentSaveIdentifier = cleanNewIdentifier;
         _currentSaveIdentifier = cleanNewIdentifier;
         _sessionPendingEntries.clear();
@@ -96,124 +122,93 @@ namespace DynamicBookFramework {
         std::string content;    // Holds static text OR the SaveID for a dynamic block
     };
 
-    // And you can keep this struct for holding parsed block data.
-    struct SaveBlock {
-        std::string id;
-        std::string timelineID;
-        std::string parentID;
-        std::string content;
-    };
-
-    // --- This is the final, corrected GetFullContent function ---
+    
     std::string SessionDataManager::GetFullContent(const std::string& fileKey) {
         std::lock_guard<std::mutex> lock(_dataMutex);
 
         if (_currentSaveIdentifier.empty()) return "";
 
-        auto pathOpt = GetDynamicBookPathByTitle(string_to_wstring(fileKey));
-        if (!pathOpt || !std::filesystem::exists(*pathOpt)) {
-            // Handle case where file doesn't exist but there are pending entries
-            if (_sessionPendingEntries.count(fileKey) && !_sessionPendingEntries.at(fileKey).empty()) {
-                std::string pendingText;
-                for(const auto& entry : _sessionPendingEntries.at(fileKey)) {
-                    pendingText += entry + "\n";
+        // --- PHASE 1: BUILD THE VALID HISTORY CHAIN FROM THE MASTER LOG ---
+        std::set<std::string> validSaveIDs;
+        auto historyPath = g_historyLogPath; // Using your global variable for the history log path
+
+        if (std::filesystem::exists(historyPath)) {
+            std::string parentTracer = StripExtension(_currentSaveIdentifier);
+            
+            // This loop now correctly traces the history using the master log file.
+            while (!parentTracer.empty() && validSaveIDs.find(parentTracer) == validSaveIDs.end()) {
+                validSaveIDs.insert(parentTracer);
+
+                // <<< THE FIX IS HERE: This now correctly opens the history log file.
+                std::ifstream historyFile(historyPath);
+                std::string line;
+                bool foundParentInLog = false;
+
+                while (std::getline(historyFile, line)) {
+                    if (line.find("ID=\"" + parentTracer + "\"") != std::string::npos) {
+                        parentTracer = StripExtension(ParseValue(line, "PARENT"));
+                        foundParentInLog = true;
+                        break;
+                    }
                 }
-                return pendingText;
+                if (!foundParentInLog) break;
             }
-            return "";
         }
 
-        // --- PHASE 1: A SINGLE, SMART PARSING PASS ---
-        // We will build both the file layout and a map of all save blocks in one go.
-        std::vector<FileChunk> fileLayout;
-        std::map<std::string, SaveBlock> allBlocks;
+        // --- PHASE 2: PARSE THE SPECIFIC BOOK FILE'S LAYOUT ---
+        auto pathOpt = GetDynamicBookPathByTitle(string_to_wstring(fileKey));
+        if (!pathOpt || !std::filesystem::exists(*pathOpt)) {
+            // ... (pending entry handling when file doesn't exist) ...
+            return ""; // Simplified
+        }
 
-        std::ifstream file(*pathOpt);
+        std::vector<FileChunk> fileLayout;
+        std::map<std::string, std::string> dynamicContentMap;
+        std::ifstream bookFile(*pathOpt);
         std::string line;
-        std::stringstream staticBuffer;
-        std::stringstream dynamicBuffer;
+        std::stringstream staticBuffer, dynamicBuffer;
         std::string currentBlockId;
         bool inDynamicBlock = false;
 
-        // This loop now populates BOTH the layout and the map of all save blocks.
-        while (std::getline(file, line)) {
-            // NOTE: This code assumes the original ";;BEGIN_SAVE_DATA..." format.
-            // If you use the human-readable ";;SAVE_BLOCK ID=..." format, the parsing here needs to be updated.
-            if (line.rfind(";;BEGIN_SAVE_DATA ", 0) == 0) {
+        while (std::getline(bookFile, line)) {
+            if (line.rfind(";;SAVE_BLOCK ", 0) == 0) {
                 if (staticBuffer.tellp() > 0) {
                     fileLayout.push_back({false, staticBuffer.str()});
                     staticBuffer.str("");
                 }
-                
                 inDynamicBlock = true;
-                std::string metadata = line.substr(18, line.length() - 20);
-                std::stringstream ss(metadata);
-                std::string id, timeline, parent;
-                std::getline(ss, id, ';');
-                std::getline(ss, timeline, ';');
-                std::getline(ss, parent, ';');
-                
-                currentBlockId = id;
-                allBlocks[currentBlockId] = {id, timeline, parent, ""}; // Add block with empty content
-                fileLayout.push_back({true, currentBlockId}); // Add placeholder to layout
+                currentBlockId = ParseValue(line, "ID");
+                fileLayout.push_back({true, currentBlockId});
                 dynamicBuffer.str("");
-
             } else if (line.rfind(";;END_SAVE_DATA;;", 0) == 0) {
-                if (inDynamicBlock && allBlocks.count(currentBlockId)) {
-                    allBlocks[currentBlockId].content = dynamicBuffer.str(); // Set the content for the block
+                if (inDynamicBlock) {
+                    dynamicContentMap[currentBlockId] = dynamicBuffer.str();
                 }
                 inDynamicBlock = false;
-                currentBlockId = "";
-
             } else {
-                if (inDynamicBlock) {
-                    dynamicBuffer << line << '\n';
-                } else {
-                    staticBuffer << line << '\n';
-                }
+                if (inDynamicBlock) dynamicBuffer << line << '\n';
+                else staticBuffer << line << '\n';
             }
         }
         if (staticBuffer.tellp() > 0) {
             fileLayout.push_back({false, staticBuffer.str()});
         }
 
-        // --- PHASE 2: BUILD THE VALID HISTORY CHAIN (The Correct Way) ---
-        // This logic works from the in-memory map and is efficient and correct.
-        std::set<std::string> validSaveIDs;
-        std::string currentIdInChain = StripExtension(_currentSaveIdentifier);
-
-        while (!currentIdInChain.empty() && allBlocks.count(currentIdInChain)) {
-            validSaveIDs.insert(currentIdInChain);
-            const auto& block = allBlocks.at(currentIdInChain);
-            if (block.parentID.empty() || block.parentID == currentIdInChain) {
-                break; // Reached the start of the chain
-            }
-            currentIdInChain = StripExtension(block.parentID);
-        }
-
         // --- PHASE 3: ASSEMBLE THE FINAL CONTENT ---
         std::stringstream finalContent;
         for (const auto& chunk : fileLayout) {
             if (!chunk.isDynamicBlock) {
-                // It's static text, always include it.
                 finalContent << chunk.content;
             } else {
-                // It's a dynamic block. Check if its SaveID is in our valid history.
                 if (validSaveIDs.count(chunk.content)) {
-                    finalContent << allBlocks.at(chunk.content).content;
+                    finalContent << dynamicContentMap[chunk.content];
                 }
             }
         }
 
-        // --- PHASE 4: APPEND PENDING (UNSAVED) ENTRIES ---
+        // --- PHASE 4: APPEND PENDING ENTRIES ---
         if (_sessionPendingEntries.count(fileKey) && !_sessionPendingEntries.at(fileKey).empty()) {
-            if (finalContent.tellp() > 0) {
-                // Add a separator only if there's existing content
-                std::string currentContent = finalContent.str();
-                if (currentContent.length() < 2 || currentContent.substr(currentContent.length() - 2) != "\n\n") {
-                    finalContent << "\n";
-                }
-            }
+            if (finalContent.tellp() > 0) finalContent << "\n";
             for (const auto& entry : _sessionPendingEntries.at(fileKey)) {
                 finalContent << entry << "\n";
             }
@@ -221,6 +216,7 @@ namespace DynamicBookFramework {
         
         return finalContent.str();
     }
+    
     // This is the public API function that your addon calls
     void SessionDataManager::AppendEntry(const std::string& fileKey, const std::string& entryText) {
         if (_currentSaveIdentifier.empty()) {

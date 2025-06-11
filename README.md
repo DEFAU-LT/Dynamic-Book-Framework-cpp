@@ -15,6 +15,7 @@ This system provides modders and players with a flexible way to override or exte
 * **Persistent, Save-Aware Journals**
     Entries are saved to external .txt files, creating a permanent record of a character's journey.
     The framework is fully aware of the save/load system. Loading an older save will show the journal exactly as it was at that point in time.
+    Your save history is recorded in the `_SaveHistory.log` file and the plugin builds the history chain needed.
 * **Hybrid Content Model**
     * Mix static and dynamic content seamlessly
     * Text written outside of save blocks acts as a permanent template, always visible in the book.
@@ -37,6 +38,29 @@ This system provides modders and players with a flexible way to override or exte
     * Address Library for SKSE Plugins
     * MCM Helper (Optional, but recommended for user configuration)
 2.  Download and install the mod using Mod Organizer 2, Vortex, or manually by extracting to your Skyrim `Data` directory.
+    ```
+      Data/
+      ├── DynamicBookFramework.esp          
+      ├── SKSE/
+      │   └── Plugins/
+      │       ├── DynamicJournalFramework.dll
+      │       ├── DynamicJournalFramework.ini
+      │       └── books/  (Base directory for book texts)
+      │             ├── PlayerChronicle.txt
+      │             ├── my_custom_book.txt
+      │             └── ... (other .txt files or subfolders)
+      ├── MCM/
+      │   └── Config/
+      │       └── DynamicJournalFramework/  
+      │           ├── config.json  
+	  │           └── setting.ini
+      └── Scripts/
+          ├── DBF_MCMmenu.pex
+          ├── DBF_ScriptUtil.pex             
+          └── Source/                        
+              ├── DBF_MCMmenu.psc
+              └── DBF_ScriptUtil.psc
+      ```
 3.  Ensure the plugin is activated in your load order (e.g., `DynamicBookFramework.esp`, if used for the journal book item).
 
 ---
@@ -117,6 +141,17 @@ The framework also exposes a Papyrus native function to allow your other scripts
     * `asTextToAppend`: The plain text string you want to append to the book's content file. This text will be added to the end of the existing content in the `.txt` file (with a preceding newline if the file is not empty). The next time the book is opened, this new text will be processed by the framework's HTML markup rules.
 
 * **Example Papyrus Usage:**
+    * First add `<Import>C:\SSE\Mods\Dynamic Book Framework\Scripts\Source</Import>` in your Skyrim.ppj file's import section
+    ```Skyrimse.ppj example
+    <Imports>
+        <Import>C:\Steam\steamapps\common\Skyrim Special Edition\Data\Scripts\Source</Import>
+        <Import>C:\SSE\Mods\PapyrusUtil SE - Modders Scripting Utility Functions\Scripts\Source</Import>
+        <Import>C:\SSE\Mods\Skyrim Script Extender (SKSE64)\Scripts\Source</Import>
+        <Import>C:\SSE\Mods\MCM SDK\Source\Scripts</Import>
+        <Import>C:\SSE\Mods\Dynamic Book Framework\Scripts\Source</Import>
+    </Imports>
+    ```
+    * Add the function to your script.
     ```papyrus
     DBF_ScriptUtil.AppendToFile("My Adventures", "Today, I bravely faced a draugr and lived to tell the tale.")
     ```
