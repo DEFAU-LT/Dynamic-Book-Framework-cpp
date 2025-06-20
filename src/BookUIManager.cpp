@@ -97,4 +97,7 @@ namespace DynamicBookFramework {
         }
 
     } // namespace BookUIManager
+    namespace ImGuiMenu {
+        
+    }
 }

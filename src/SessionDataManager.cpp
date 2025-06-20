@@ -122,55 +122,39 @@ namespace DynamicBookFramework {
         std::string content;    // Holds static text OR the SaveID for a dynamic block
     };
 
+     struct SaveBlock {
+        std::string id;
+        std::string timelineID;
+        std::string parentID;
+        std::string content;
+    };
+
     
+    // You will still need the helper structs FileChunk and SaveBlock.
+
     std::string SessionDataManager::GetFullContent(const std::string& fileKey) {
         std::lock_guard<std::mutex> lock(_dataMutex);
 
         if (_currentSaveIdentifier.empty()) return "";
 
-        // --- PHASE 1: BUILD THE VALID HISTORY CHAIN FROM THE MASTER LOG ---
-        std::set<std::string> validSaveIDs;
-        auto historyPath = g_historyLogPath; // Using your global variable for the history log path
-
-        if (std::filesystem::exists(historyPath)) {
-            std::string parentTracer = StripExtension(_currentSaveIdentifier);
-            
-            // This loop now correctly traces the history using the master log file.
-            while (!parentTracer.empty() && validSaveIDs.find(parentTracer) == validSaveIDs.end()) {
-                validSaveIDs.insert(parentTracer);
-
-                // <<< THE FIX IS HERE: This now correctly opens the history log file.
-                std::ifstream historyFile(historyPath);
-                std::string line;
-                bool foundParentInLog = false;
-
-                while (std::getline(historyFile, line)) {
-                    if (line.find("ID=\"" + parentTracer + "\"") != std::string::npos) {
-                        parentTracer = StripExtension(ParseValue(line, "PARENT"));
-                        foundParentInLog = true;
-                        break;
-                    }
-                }
-                if (!foundParentInLog) break;
-            }
-        }
-
-        // --- PHASE 2: PARSE THE SPECIFIC BOOK FILE'S LAYOUT ---
         auto pathOpt = GetDynamicBookPathByTitle(string_to_wstring(fileKey));
         if (!pathOpt || !std::filesystem::exists(*pathOpt)) {
-            // ... (pending entry handling when file doesn't exist) ...
-            return ""; // Simplified
+            // Handle case where file doesn't exist
+            return "";
         }
 
+        // --- PHASE 1: A SINGLE, SMART PARSING PASS ---
         std::vector<FileChunk> fileLayout;
         std::map<std::string, std::string> dynamicContentMap;
-        std::ifstream bookFile(*pathOpt);
+
+        std::ifstream file(*pathOpt);
         std::string line;
-        std::stringstream staticBuffer, dynamicBuffer;
+        std::stringstream staticBuffer;
+        std::stringstream dynamicBuffer;
         std::string currentBlockId;
         bool inDynamicBlock = false;
 
-        while (std::getline(bookFile, line)) {
+        while (std::getline(file, line)) {
             if (line.rfind(";;SAVE_BLOCK ", 0) == 0) {
                 if (staticBuffer.tellp() > 0) {
                     fileLayout.push_back({false, staticBuffer.str()});
@@ -185,13 +169,46 @@ namespace DynamicBookFramework {
                     dynamicContentMap[currentBlockId] = dynamicBuffer.str();
                 }
                 inDynamicBlock = false;
+                currentBlockId = "";
             } else {
-                if (inDynamicBlock) dynamicBuffer << line << '\n';
-                else staticBuffer << line << '\n';
+                if (inDynamicBlock) {
+                    dynamicBuffer << line << '\n';
+                } else {
+                    staticBuffer << line << '\n';
+                }
             }
         }
         if (staticBuffer.tellp() > 0) {
             fileLayout.push_back({false, staticBuffer.str()});
+        }
+        
+        // --- PHASE 2: BUILD THE VALID HISTORY CHAIN (Efficiently) ---
+        std::set<std::string> validSaveIDs;
+        std::map<std::string, std::string> historyParentMap;
+        auto historyPath = g_historyLogPath;
+
+        if (std::filesystem::exists(historyPath)) {
+            // First, read the entire history log into a map for fast lookups
+            std::ifstream historyFile(historyPath);
+            std::string historyLine;
+            while (std::getline(historyFile, historyLine)) {
+                std::string id = ParseValue(historyLine, "ID");
+                std::string parent = ParseValue(historyLine, "PARENT");
+                if (!id.empty()) {
+                    historyParentMap[id] = parent;
+                }
+            }
+
+            // Now, trace the history using the map
+            std::string parentTracer = StripExtension(_currentSaveIdentifier);
+            while (!parentTracer.empty()) {
+                validSaveIDs.insert(parentTracer);
+                if (historyParentMap.count(parentTracer)) {
+                    parentTracer = StripExtension(historyParentMap.at(parentTracer));
+                } else {
+                    break; // Reached the end of the chain
+                }
+            }
         }
 
         // --- PHASE 3: ASSEMBLE THE FINAL CONTENT ---
@@ -201,19 +218,20 @@ namespace DynamicBookFramework {
                 finalContent << chunk.content;
             } else {
                 if (validSaveIDs.count(chunk.content)) {
+                    finalContent << "<a name='" << chunk.content << "'></a>";
                     finalContent << dynamicContentMap[chunk.content];
                 }
             }
         }
 
-        // --- PHASE 4: APPEND PENDING ENTRIES ---
+        // --- PHASE 4: APPEND PENDING (UNSAVED) ENTRIES ---
         if (_sessionPendingEntries.count(fileKey) && !_sessionPendingEntries.at(fileKey).empty()) {
-            if (finalContent.tellp() > 0) finalContent << "\n";
+            if (finalContent.tellp() > 0) finalContent << "\n\n";
             for (const auto& entry : _sessionPendingEntries.at(fileKey)) {
-                finalContent << entry << "\n";
+                finalContent << entry << "\n\n";
             }
         }
-        
+
         return finalContent.str();
     }
     

@@ -5,15 +5,11 @@
 #include "FileWatcher.h"
 #include "SessionDataManager.h"
 #include "API.h"
+#include "ImGuiMenu.h"
+#include "InputListener.h"
 #include "Version.h" 
 
-
-
-// --- Global Variables ---
-namespace {
-    std::wstring g_iniPath = L"Data\\SKSE\\Plugins\\DynamicBookFramework.ini";
-}
-
+// --- API Message Handler ---
 void ApiMessageHandler(SKSE::MessagingInterface::Message* a_msg) {
     if (!a_msg) {
         return;
@@ -55,8 +51,10 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
             {
                 logger::info("Received kPostLoad message. Registering API listener...");
                 auto* messaging = SKSE::GetMessagingInterface();
+                
+                // Register the API listener
                 if (messaging && messaging->RegisterListener(NULL, ApiMessageHandler)) {
-                        logger::info("Successfully registered API listener for messages targeting '{}' from DynamicJournal.", Version::PROJECT);
+                        logger::info("Successfully registered API listener for messages targeting '{}'.", Version::PROJECT);
                 } else {
                         logger::warn("Could not register API listener!");
                 }
@@ -64,66 +62,38 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
             break;
         
         case SKSE::MessagingInterface::kDataLoaded:
-            //logger::info("Received kDataLoaded message.");
             {
+                logger::info("kDataLoaded: Initializing framework components...");
                 DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameLoad("MainMenu");
                 
-                // Register Papyrus functions using the new callback
+                InputListener::Install();
+                ImGuiRender::InitializeSKSEMenuFramework();
+                ImGuiRender::Register();
+                
                 if (auto* papyrus = SKSE::GetPapyrusInterface()) {
-                    papyrus->Register(PapyrusFuncs::SKSE_RegisterPapyrusFuncs_Callback); // Use the new namespaced function
-                } else {
-                    logger::critical("Could not get Papyrus interface! Native functions not registered.");
+                    papyrus->Register(PapyrusFuncs::SKSE_RegisterPapyrusFuncs_Callback);
                 }
-
-                // Register Menu Event Listener
                 if (auto* ui = RE::UI::GetSingleton()) {
                     ui->AddEventSink(DynamicBookFramework::BookMenuWatcher::GetSingleton());
-                    logger::info("Registered BookMenuWatcher event sink.");
-                } else {
-                    logger::critical("Could not get UI interface! Menu watcher not registered.");
                 }
 
-                // Load dynamic book mappings from INI
-                LoadBookMappings(g_iniPath);
-
+                LoadBookMappings();
                 DynamicBookFramework::FileWatcher::Start();
-
-                if (SetBookTextHook::Install()) {
-                    //logger::info("SetBookText hook successfully installed directly.");
-                } else {
-                    logger::error("Failed to install SetBookText hook!");
-                }
+                SetBookTextHook::Install();
             }
             break;
 
+        // Handle NewGame, PreLoadGame, and SaveGame events...            
         case SKSE::MessagingInterface::kNewGame:
-            {
-                logger::info("Received kNewGame message. Initializing for new journal.");
-                std::string saveName = static_cast<const char*>(a_msg->data);
-                DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameLoad(saveName); // No message data for new game
-            }
+            DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameLoad(static_cast<const char*>(a_msg->data));
             break;
-
         case SKSE::MessagingInterface::kPreLoadGame:
-            {
-                logger::info("Received kPostLoadGame message. Initializing journal for loaded save.");
-                //(a_msg->data && reinterpret_cast<uintptr_t>(a_msg->data) > 0x10000);
-                //std::string saveName = static_cast<const char*>(a_msg->data);
-                std::string saveName = static_cast<const char*>(a_msg->data);
-                DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameLoad(saveName);
-            }
+            DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameLoad(static_cast<const char*>(a_msg->data));
+            break;
+        case SKSE::MessagingInterface::kSaveGame:
+            DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameSave(static_cast<const char*>(a_msg->data));
             break;
         
-        case SKSE::MessagingInterface::kSaveGame:
-            {
-                logger::info("Received kSaveGame event. Committing pending journal entries.");
-                std::string saveName = static_cast<const char*>(a_msg->data);
-                // Tell SessionDataManager what the current save is, just in case it changed.
-                //DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameLoad(saveName);
-                // Now commit the buffered data.
-                DynamicBookFramework::SessionDataManager::GetSingleton()->OnGameSave(saveName);
-            }
-            break;
         case DynamicBookFramework_API::kAppendEntry:
             {
                 logger::info("Received AppendEntry API call from plugin: {}", a_msg->sender);

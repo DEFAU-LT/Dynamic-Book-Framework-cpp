@@ -1,0 +1,102 @@
+Modder's Guide: Creating a Dynamic Book
+This guide will walk you through the process of using the Dynamic Book Framework to create your own dynamic book. We will create a new book called "The Dragonborn's Chronicle" and add an entry to it from a quest script.
+
+Step 1: Create the Book in the Creation Kit
+First, we need to create the book item itself in the game.
+
+Open the Creation Kit.
+
+In the Object Window, navigate to Items -> Book.
+
+Right-click in the list and select New.
+
+A new window will open. Fill in the following fields:
+
+ID: MyMod_Book_DragonbornChronicle (This is a unique ID for the editor).
+
+Book › Title: The Dragonborn's Chronicle (This is the name the player will see in-game. It must exactly match what you will put in the INI file).
+
+Model: You can leave the default book model or choose a new one.
+
+Leave the "Book Text" field completely empty. The framework will fill this in for you at runtime.
+
+Click OK to save the new book.
+
+Place the book somewhere in the world (e.g., on a table in Breezehome) or add it to a container.
+
+Save your new plugin file as MyDragonbornChronicle.esp.
+
+Step 2: Create the Content File
+Next, we create the .txt file that will contain the book's content.
+
+Navigate to your Skyrim Data folder.
+
+Go to SKSE/Plugins/books/.
+
+Create a new folder for your mod's content to keep things organized. Let's call it MyMod.
+
+Inside the MyMod folder, create a new text file named DragonbornChronicle.txt.
+
+This file will act as the template for your book. You can add static text that will always be visible.
+
+Example DragonbornChronicle.txt:
+
+The Chronicle of the Last Dragonborn
+-------------------------------------
+A record of their journey and deeds.
+
+
+
+;;SAVE_BLOCK ID="MyMod_Save1_..."...;;
+My journey began in the back of a cart, bound for Helgen. I do not know what fate awaits me.
+;;END_SAVE_DATA;;
+
+
+The text above the ;;SAVE_BLOCK;; is static and will always appear. The text inside the block is a dynamic entry that will only show up if that specific save is part of the player's history.
+
+Step 3: Update the DynamicBookFramework.ini
+Now, we need to tell the framework to link our new book to our new content file.
+
+Open your Data/SKSE/Plugins/DynamicBookFramework.ini file.
+
+Add a new line under the [Books] section.
+
+Updated DynamicBookFramework.ini:
+
+[Books]
+Adventurer's Journal = MyMod/Journal.txt
+
+; Add this new line to map your book
+The Dragonborn's Chronicle = MyMod/DragonbornChronicle.txt
+
+The left side is the exact in-game title of the book, and the right side is the path to your .txt file, relative to the SKSE/Plugins/books/ folder.
+
+Step 4: Add a Dynamic Entry via Papyrus
+Finally, let's create a simple quest script that adds a new entry to the journal when a quest starts.
+
+In the Creation Kit, create a new quest and attach a new Papyrus script to it. Let's call it MyMod_QuestScript.psc.
+
+Here is the code for the script:
+
+MyMod_QuestScript.psc
+
+Scriptname MyMod_QuestScript extends Quest
+
+Event OnQuestInit()
+    ; This event runs when the quest starts.
+    
+    ; Define the title of the book we want to write to.
+    string BookTitle = "The Dragonborn's Chronicle"
+
+    ; Define the new entry we want to add. We can use newlines (\n) for formatting.
+    string NewEntry = "Today, I absorbed the soul of the dragon Mirmulnir at the Western Watchtower.\nI now understand what it means to be Dragonborn."
+
+    ; Call the framework's API function to append the text to the file.
+    DBF_ScriptUtil.AppendToFile(BookTitle, NewEntry)
+
+    Debug.Trace("[MyMod] A new entry has been added to The Dragonborn's Chronicle.")
+EndEvent
+
+Now, when this quest starts in the game, the new entry will be saved. The next time the player opens "The Dragonborn's Chronicle", they will see both the static introduction and their new, dynamically added entry.
+
+That's it! You've successfully used the framework to create a new, fully dynamic book.

@@ -50,7 +50,6 @@ endif()
 # set(OUTPUT_FOLDER "C:/path/to/any/folder")
 #---------------------------------------------------------
 
-
 # Automatically find all .cpp files in the src directory
 file(GLOB_RECURSE PLUGIN_SOURCES CONFIGURE_DEPENDS "src/*.cpp")
 
@@ -68,10 +67,13 @@ add_commonlibsse_plugin(${PROJECT_NAME}
         "${CMAKE_CURRENT_BINARY_DIR}/version.rc"
 )
 
+
 # Update Include Directories
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_BINARY_DIR}/include        # For generated Version.h
     ${CMAKE_CURRENT_SOURCE_DIR}/include        # Main directory for your project's headers
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/SKSEMCP 
+    #${SKSE_MCP_INCLUDE_DIRS}
 )
 
 # <<< CHANGED: Set C++ Standard to 23 (Recommended) >>>

@@ -141,53 +141,65 @@ std::string wstring_to_utf8(const std::wstring& wstr) {
 }
 
 // Reads all book mappings from the INI file into g_dynamicBooks
-void LoadBookMappings(const std::wstring& iniPath)
+void LoadBookMappings()
 {
-    g_dynamicBooks.clear(); // Clear existing mappings
+    g_dynamicBooks.clear(); 
 
-    constexpr size_t bufferSize = 4096;
-    wchar_t keysBuffer[bufferSize] = { 0 };
-    GetPrivateProfileStringW(L"Books", nullptr, nullptr, keysBuffer, bufferSize, iniPath.c_str());
+    // Define the path to the configuration folder.
+    std::filesystem::path configsFolderPath = "Data/SKSE/Plugins/DynamicBookFramework/Configs";
 
-    // Derive base path to the `books/` folder (relative to the INI)
-    std::filesystem::path iniDir = std::filesystem::path(iniPath).parent_path();
-    std::filesystem::path booksFolder = iniDir / L"books";
-
-    wchar_t* currentKey = keysBuffer;
-    while (*currentKey)
-    {
-        wchar_t valueBuffer[bufferSize] = { 0 };
-        GetPrivateProfileStringW(L"Books", currentKey, nullptr, valueBuffer, bufferSize, iniPath.c_str());
-
-        if (*valueBuffer)
-        {
-            std::wstring key(currentKey);
-            std::filesystem::path fullTxtPath = booksFolder / valueBuffer;
-
-            // Store in your map
-            g_dynamicBooks[key] = fullTxtPath.wstring();
-        }
-
-        currentKey += wcslen(currentKey) + 1;
+    if (!std::filesystem::exists(configsFolderPath) || !std::filesystem::is_directory(configsFolderPath)) {
+        logger::warn("Configs folder not found at '{}'. No dynamic books will be loaded.", configsFolderPath.string());
+        return;
     }
-    //logger::info("Loaded {} dynamic book mappings.", g_dynamicBooks.size()); 
-    if (!g_dynamicBooks.empty()) {
-        std::stringstream titles_ss; // Use a stringstream to build the list
-        bool first_title = true;
 
-        for (const auto& pair : g_dynamicBooks) {
-            // pair.first is the std::wstring title
-            std::string title_utf8 = wstring_to_utf8(pair.first); // Your existing conversion function
+    logger::info("Scanning for book mapping files in '{}'...", configsFolderPath.string());
 
-            if (!first_title) {
-                titles_ss << ", "; // Add a comma and space before subsequent titles
+    // Loop through every file in the Configs directory.
+    for (const auto& entry : std::filesystem::directory_iterator(configsFolderPath)) {
+        if (entry.is_regular_file() && entry.path().extension() == ".ini") {
+            
+            // For each .ini file found, read its contents.
+            const std::wstring& iniPath = entry.path().wstring();
+            logger::info("  -> Loading mappings from '{}'", wstring_to_utf8(iniPath));
+
+            constexpr size_t bufferSize = 4096;
+            wchar_t keysBuffer[bufferSize] = { 0 };
+            GetPrivateProfileStringW(L"Books", nullptr, nullptr, keysBuffer, bufferSize, iniPath.c_str());
+
+            std::filesystem::path booksFolder = "Data/SKSE/Plugins/DynamicBookFramework/books";
+
+            wchar_t* currentKey = keysBuffer;
+            while (*currentKey) {
+                wchar_t valueBuffer[bufferSize] = { 0 };
+                GetPrivateProfileStringW(L"Books", currentKey, nullptr, valueBuffer, bufferSize, iniPath.c_str());
+
+                if (*valueBuffer) {
+                    std::wstring key(currentKey);
+                    std::filesystem::path fullTxtPath = booksFolder / valueBuffer;
+
+                    // Store the mapping in your global map.
+                    g_dynamicBooks[key] = fullTxtPath.wstring();
+                }
+                currentKey += wcslen(currentKey) + 1;
             }
-            titles_ss << "'" << title_utf8 << "'"; // Add the title in single quotes
-
-            first_title = false; // Set flag to false after processing the first title
         }
-        // Log the compiled string of titles
-        logger::info("Dynamic Book Titles Loaded: {}", titles_ss.str());
+    }
+    
+    // Log the results for debugging.
+    if (!g_dynamicBooks.empty()) {
+        std::stringstream titles_ss;
+        bool first_title = true;
+        for (const auto& pair : g_dynamicBooks) {
+            if (!first_title) {
+                titles_ss << ", ";
+            }
+            titles_ss << "'" << wstring_to_utf8(pair.first) << "'";
+            first_title = false;
+        }
+        logger::info("Finished loading. Total dynamic books found: {}. Titles: {}", g_dynamicBooks.size(), titles_ss.str());
+    } else {
+        logger::info("Finished loading. No dynamic book mappings were found.");
     }
 }
 
@@ -202,3 +214,11 @@ std::optional<std::wstring> GetDynamicBookPathByTitle(const std::wstring& bookTi
     return std::nullopt;
 }
 
+std::vector<std::string> GetAllBookTitles() {
+    std::vector<std::string> titles;
+    // Iterate through the global map and extract the keys (the book titles).
+    for (auto const& [title_w, path_w] : g_dynamicBooks) {
+        titles.push_back(wstring_to_utf8(title_w)); // Convert wstring title to string
+    }
+    return titles;
+}

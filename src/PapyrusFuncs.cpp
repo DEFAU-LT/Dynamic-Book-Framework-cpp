@@ -4,10 +4,6 @@
 #include "SessionDataManager.h"
 #include "PCH.h"
 
-namespace {
-    std::wstring g_iniPath = L"Data\\SKSE\\Plugins\\DynamicBookFramework.ini";
-}
-
 
 namespace { // Anonymous namespace for file-local native function implementations
 
@@ -37,7 +33,7 @@ namespace { // Anonymous namespace for file-local native function implementation
 
     void Papyrus_ReloadDynamicBookINI(RE::StaticFunctionTag* /*base*/) {
         logger::info("Papyrus_ReloadDynamicBookINI called. Reloading INI mappings...");
-        LoadBookMappings(g_iniPath);
+        LoadBookMappings();
         // RE::DebugNotification("Dynamic book INI reloaded."); // Optional feedback
     }
 
