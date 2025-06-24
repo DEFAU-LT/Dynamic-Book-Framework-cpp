@@ -226,9 +226,9 @@ namespace DynamicBookFramework {
 
         // --- PHASE 4: APPEND PENDING (UNSAVED) ENTRIES ---
         if (_sessionPendingEntries.count(fileKey) && !_sessionPendingEntries.at(fileKey).empty()) {
-            if (finalContent.tellp() > 0) finalContent << "\n\n";
+            if (finalContent.tellp() > 0) finalContent << "\n";
             for (const auto& entry : _sessionPendingEntries.at(fileKey)) {
-                finalContent << entry << "\n\n";
+                finalContent << entry << "\n";
             }
         }
 

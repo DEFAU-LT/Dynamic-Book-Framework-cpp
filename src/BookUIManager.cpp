@@ -81,14 +81,14 @@ namespace DynamicBookFramework {
                 logger::info("BookUIManager: Re-invoking original SetBookText thunk with new content for '{}'.", bookTitle);
                 SetBookTextHook::g_rawOriginalThunkPtr(currentMovieView, "SetBookText", &fxArgs, 0);
 
-                SKSE::ModCallbackEvent modEvent{ "DynamicBook_ForcePageUpdate", "", 0.0f, nullptr };
-                auto* modEventSource = SKSE::GetModCallbackEventSource();
-                if (modEventSource) {
-                    modEventSource->SendEvent(&modEvent);
-                    logger::info("BookUIManager: Sent 'DynamicBook_ForcePageUpdate' event to SWF.");
-                } else {
-                    logger::error("BookUIManager: Could not get SKSE ModCallbackEventSource to send update event.");
-                }
+                // SKSE::ModCallbackEvent modEvent{ "DBF_onToggleInputMode", "", 0.0f, nullptr };
+                // auto* modEventSource = SKSE::GetModCallbackEventSource();
+                // if (modEventSource) {
+                //     modEventSource->SendEvent(&modEvent);
+                //     logger::info("BookUIManager: Sent 'DBF_onToggleInputMode' event to SWF.");
+                // } else {
+                //     logger::error("BookUIManager: Could not get SKSE ModCallbackEventSource to send update event.");
+                // }
                 return true;
             } else {
                 logger::error("BookUIManager: Original SetBookText thunk pointer (g_rawOriginalThunkPtr) is null. Cannot refresh book content.");
@@ -97,7 +97,5 @@ namespace DynamicBookFramework {
         }
 
     } // namespace BookUIManager
-    namespace ImGuiMenu {
         
-    }
 }

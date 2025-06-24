@@ -3,6 +3,7 @@
 #include "SessionDataManager.h"
 #include "Utility.h"
 #include "BookUIManager.h"
+#include "Settings.h"
 #include "PCH.h"
 
 
@@ -75,8 +76,8 @@ namespace DynamicBookFramework {
 			} else {
                 logger::info("BookMenuWatcher: No raw HTML marker. Applying general markup.");
                 std::string body = HtmlFormatText::ApplyGeneralBookMarkup_ProcessChunk(fileContent);
-                std::string defaultFontFace = "$HandWrittenFont"; 
-                int defaultFontSize = 20;
+                std::string defaultFontFace = Settings::defaultFontFace; 
+    			int defaultFontSize = Settings::defaultFontSize;
                 textToStoreForBook = "<font face=\"" + defaultFontFace + "\" size=\"" + std::to_string(defaultFontSize) + "\">\n" + body + "</font>";
 			}
 			

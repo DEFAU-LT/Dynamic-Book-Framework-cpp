@@ -6,7 +6,6 @@
 #include "SKSE/SKSE.h"
 #include <SKSE/Impl/Stubs.h>
 
-
 // --- Logging (spdlog via CommonLibSSE) ---
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/basic_file_sink.h>
@@ -20,6 +19,8 @@
 #include <chrono>
 #include <shlobj.h>
 #include <mutex>
+#include <map>
+#include <cstdint>
 
 // --- Formatting (Choose One - Add the include line here) ---
 // #include <spdlog/fmt/fmt.h> // Option 1: Bundled {fmt} (Recommended C++17+)

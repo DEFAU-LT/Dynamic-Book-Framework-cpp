@@ -25,3 +25,4 @@ std::string wstring_to_utf8(const std::wstring& wstr);
 std::string GetCurrentSaveIdentifier();
 void OnGameLoad();
 std::vector<std::string> GetAllBookTitles();
+std::vector<std::string> SplitString(const std::string& str, char delimiter);

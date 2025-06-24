@@ -13,5 +13,4 @@ namespace DynamicBookFramework {
         bool RefreshCurrentlyOpenBook();
 
     } // namespace BookUIManager
-
 }

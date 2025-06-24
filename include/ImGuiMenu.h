@@ -1,7 +1,7 @@
 #pragma once
 
 // This is the header you provided, which is all we need.
-#include "SKSEMenuFramework.h" 
+#include "SKSEMenuFramework.h"
 
 
 namespace ImGuiRender {

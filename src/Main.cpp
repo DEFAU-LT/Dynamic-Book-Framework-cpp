@@ -7,6 +7,7 @@
 #include "API.h"
 #include "ImGuiMenu.h"
 #include "InputListener.h"
+#include "Settings.h"
 #include "Version.h" 
 
 // --- API Message Handler ---
@@ -80,6 +81,7 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
                 LoadBookMappings();
                 DynamicBookFramework::FileWatcher::Start();
                 SetBookTextHook::Install();
+                Settings::LoadSettings();
             }
             break;
 
