@@ -2,7 +2,8 @@
 #include "BookUIManager.h"
 #include "BookMenuWatcher.h"
 #include "Utility.h"            
-#include "SetBookTextHook.h"   
+#include "SetBookTextHook.h"  
+#include "SessionDataManager.h" 
 #include "PCH.h" 
 
 
@@ -28,8 +29,25 @@ namespace DynamicBookFramework {
                 return false;
             }
 
+<<<<<<< Updated upstream
             // --- FIX: Call GetRuntimeData() and store as a reference. Use '.' for member access. ---
             auto& runtimeData = bookMenu->GetRuntimeData();
+=======
+            logger::info("BookUIManager: Triggering live refresh for '{}'...", currentBook->GetName());
+
+            // --- THE SAFE LIVE REFRESH LOGIC ---
+
+            // 1. Get the latest raw text from the file.
+            auto* watcher = BookMenuWatcher::GetSingleton();
+            watcher->ReloadAndCacheBook(currentBook); // Ensure cache is up-to-date
+            std::string rawBookText = watcher->GetFullDynamicTextForBook(currentBook);
+
+            //std::string rawBookText = DynamicBookFramework::SessionDataManager::GetSingleton()->GetFullContent(currentBook->GetName());
+
+
+            // 2. Extract all image paths required by the new text.
+            std::vector<std::string> requiredImagePaths = ExtractImagePathsFromText(rawBookText);
+>>>>>>> Stashed changes
             
             // Accessing runtimeData.book which is the GFxMovieView GPtr
             if (!runtimeData.book) { 

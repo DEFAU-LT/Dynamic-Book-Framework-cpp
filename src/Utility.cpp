@@ -179,30 +179,21 @@ namespace HtmlFormatText {
             return "";
         }
         
-        // --- STEP 1: Sanitize all line endings ---
-        std::string sanitizedText = plainTextChunk;
-        // Replace all Windows-style \r\n with Unix-style \n
-        size_t pos = 0;
-        while ((pos = sanitizedText.find("\r\n", pos)) != std::string::npos) {
-            sanitizedText.replace(pos, 2, "\n");
-        }
-        // Replace all remaining Mac-style \r with Unix-style \n
-        pos = 0;
-        while ((pos = sanitizedText.find('\r', pos)) != std::string::npos) {
-            sanitizedText.replace(pos, 1, "\n");
-        }
-
-        // --- STEP 2: Manually split the sanitized text into lines ---
-        std::vector<std::string> lines = SplitString(sanitizedText, '\n');
-
-        // --- STEP 3: Process the guaranteed-clean lines ---
         std::stringstream resultChunkHtml;
         std::string currentTextParagraphContent;
         int consecutiveBlankLineCount = 0;
         bool currentlyInList = false;
 
+<<<<<<< Updated upstream
         for (const auto& line : lines) {
             // We no longer need to trim, as SplitString and sanitization handled it.
+=======
+        std::stringstream textStream(plainTextChunk);
+        std::string line;
+
+        while (std::getline(textStream, line)) {
+            // This is now the trimmed line, as sanitization and splitting cleaned it.
+>>>>>>> Stashed changes
             std::string trimmedLine = line;
 
             bool isListItem = !trimmedLine.empty() && trimmedLine[0] == '*';
@@ -227,8 +218,25 @@ namespace HtmlFormatText {
                     FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
                     consecutiveBlankLineCount++;
                 } else {
+<<<<<<< Updated upstream
                     if (consecutiveBlankLineCount >= 2) {
                         resultChunkHtml << "[pagebreak]\n";
+=======
+                    if (trimmedLine.rfind("[pagebreak]", 0) == 0) {
+                        FlushTextParagraphBuffer_Chunk(resultChunkHtml, currentTextParagraphContent, defaultParagraphAlign);
+                        resultChunkHtml << "<p>[pagebreak]</p>\n";
+                        consecutiveBlankLineCount = 0;
+                    } else {
+                        if (consecutiveBlankLineCount >= 2) {
+                            resultChunkHtml << "<p>[pagebreak]</p>\n";
+                        }
+                        consecutiveBlankLineCount = 0;
+                        
+                        if (!currentTextParagraphContent.empty()) {
+                            currentTextParagraphContent += "\n";
+                        }
+                        currentTextParagraphContent += trimmedLine;
+>>>>>>> Stashed changes
                     }
                     consecutiveBlankLineCount = 0;
                     
@@ -363,4 +371,73 @@ std::vector<std::string> SplitString(const std::string& str, char delimiter) {
         tokens.push_back(token);
     }
     return tokens;
+<<<<<<< Updated upstream
+=======
+}
+std::string wstring_to_string(const std::wstring& wstr) {
+    if (wstr.empty()) {
+        return std::string();
+    }
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> myconv;
+    return myconv.to_bytes(wstr);
+}
+std::vector<std::string> ExtractImagePathsFromText(const std::string& text) {
+	std::vector<std::string> paths;
+	size_t searchPos = 0;
+
+	while (searchPos < text.length()) {
+		// Find the next occurrence of either tag type
+		size_t customTagPos = text.find("[IMG=", searchPos);
+		size_t htmlTagPos = text.find("<img src='img://", searchPos);
+
+		// If neither tag is found, we're done.
+		if (customTagPos == std::string::npos && htmlTagPos == std::string::npos) {
+			break;
+		}
+
+		// Determine which tag comes first
+		size_t nextTagPos = 0;
+		bool isCustomTag = false;
+
+		if (customTagPos != std::string::npos && (htmlTagPos == std::string::npos || customTagPos < htmlTagPos)) {
+			nextTagPos = customTagPos;
+			isCustomTag = true;
+		} else {
+			nextTagPos = htmlTagPos;
+		}
+
+		if (isCustomTag) {
+			// --- Handle [IMG=...] tag ---
+			size_t endPos = text.find(']', nextTagPos);
+			if (endPos == std::string::npos) break;
+
+			size_t contentStart = nextTagPos + 5; // Move past "[IMG="
+			size_t contentLength = endPos - contentStart;
+
+			if (contentLength > 0) {
+				std::string tagContent = text.substr(contentStart, contentLength);
+				std::string imagePath = tagContent.substr(0, tagContent.find('|'));
+				paths.push_back(imagePath); // Add the found path
+			}
+			searchPos = endPos + 1; // Continue searching after this tag
+
+		} else {
+			// --- Handle <img src='img://...'> tag ---
+			size_t pathStart = nextTagPos + 16; // Move past "<img src='img://"
+			size_t endPos = text.find('\'', pathStart);
+			if (endPos == std::string::npos) break;
+
+			size_t pathLength = endPos - pathStart;
+			if (pathLength > 0) {
+				paths.push_back(text.substr(pathStart, pathLength)); // Add the found path
+			}
+			searchPos = endPos + 1; // Continue searching after this tag
+		}
+	}
+
+	return paths;
+}
+const std::unordered_map<std::wstring, std::wstring>& GetAllBookMappings() {
+    return g_dynamicBooks;
+>>>>>>> Stashed changes
 }

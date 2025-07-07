@@ -47,10 +47,25 @@ namespace DynamicBookFramework {
         }
 		std::string currentTitle(bookTitleCStr);
 		RE::FormID currentFormID = bookToPrepare->GetFormID();
+<<<<<<< Updated upstream
 		
 		std::wstring wCurrentTitle = string_to_wstring(currentTitle);
 		auto dynamicBookPathOpt = GetDynamicBookPathByTitle(wCurrentTitle);
         
+=======
+
+		Settings::g_bookmarks.erase(currentTitle);
+		std::string rawText = SessionDataManager::GetSingleton()->GetFullContent(currentTitle);
+		auto foundTags = Settings::ParseTagsFromText(rawText);
+
+		if (!foundTags.empty()) {
+			Settings::g_bookmarks[currentTitle] = foundTags;
+			logger::info("Found and registered {} bookmark tags for {}.", foundTags.size(), currentTitle);
+		}
+
+		auto dynamicBookPathOpt = GetDynamicBookPathByTitle(string_to_wstring(currentTitle));
+
+>>>>>>> Stashed changes
 		if (dynamicBookPathOpt) {
 			const std::wstring& dynamicBookPath_w = *dynamicBookPathOpt;
 			
@@ -101,9 +116,54 @@ namespace DynamicBookFramework {
         return this->dynamicBookTexts.contains(bookToReload->GetFormID());
     }
 
+<<<<<<< Updated upstream
 	std::optional<std::string> BookMenuWatcher::GetCachedHtmlForBook(RE::FormID bookFormID) {
 		auto it = this->dynamicBookTexts.find(bookFormID);
 		if (it != this->dynamicBookTexts.end()) {
+=======
+	bool BookMenuWatcher::ReloadAndCacheBook(RE::TESObjectBOOK* bookToReload) {
+		this->PrepareAndCacheBookContent(bookToReload);
+		return _dynamicBookTexts.contains(bookToReload->GetFormID());
+	}
+
+	std::string BookMenuWatcher::GetFullDynamicTextForBook(RE::TESObjectBOOK* book) {
+		if (!book) return "";
+
+		std::string bookTitle = book->GetFullName() ? book->GetFullName() : "";
+		std::string fileContent = SessionDataManager::GetSingleton()->GetFullContent(bookTitle);
+
+		if (fileContent.empty()) return "";
+
+		std::string finalText;
+		if (fileContent.rfind(";;RAW_HTML;;", 0) == 0) {
+			size_t markerLineEnd = fileContent.find('\n');
+			finalText = (markerLineEnd != std::string::npos) ? fileContent.substr(markerLineEnd + 1) : "";
+		} else {
+			std::string body = HtmlFormatText::ApplyGeneralBookMarkup_ProcessChunk(fileContent);
+			size_t end = body.find_last_not_of(" \t\n\r");
+			if (end != std::string::npos) {
+				body = body.substr(0, end + 1);
+			} else {
+				body.clear(); // Body was all whitespace, so clear it.
+			}
+			std::string defaultFontFace = Settings::defaultFontFace;
+			int defaultFontSize = Settings::defaultFontSize;
+			finalText = "<font face=\"" + defaultFontFace + "\" size=\"" + std::to_string(defaultFontSize) + "\">\n" + body + "</font>";
+		}
+		return finalText;
+	}
+
+	// --- Vanilla Text Caching Implementation ---
+	void BookMenuWatcher::CacheVanillaText(const std::string& bookTitle, const std::string& text) {
+		if (!bookTitle.empty()) {
+			_vanillaBookTexts[bookTitle] = text;
+		}
+	}
+
+	std::optional<std::string> BookMenuWatcher::GetCachedVanillaText(const std::string& bookTitle) {
+		auto it = _vanillaBookTexts.find(bookTitle);
+		if (it != _vanillaBookTexts.end()) {
+>>>>>>> Stashed changes
 			return it->second;
 		}
 		return std::nullopt;

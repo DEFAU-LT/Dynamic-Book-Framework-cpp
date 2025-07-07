@@ -26,3 +26,11 @@ std::string GetCurrentSaveIdentifier();
 void OnGameLoad();
 std::vector<std::string> GetAllBookTitles();
 std::vector<std::string> SplitString(const std::string& str, char delimiter);
+<<<<<<< Updated upstream
+=======
+std::string wstring_to_string(const std::wstring& wstr);
+// Add this declaration alongside your other function declarations
+std::vector<std::string> ExtractImagePathsFromText(const std::string& plainText);
+const std::unordered_map<std::wstring, std::wstring>& GetAllBookMappings();
+
+>>>>>>> Stashed changes

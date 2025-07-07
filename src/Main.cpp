@@ -8,6 +8,10 @@
 #include "ImGuiMenu.h"
 #include "InputListener.h"
 #include "Settings.h"
+<<<<<<< Updated upstream
+=======
+#include "ModEventHandler.h"
+>>>>>>> Stashed changes
 #include "Version.h" 
 
 // --- API Message Handler ---
@@ -80,8 +84,16 @@ void MessageHandler(SKSE::MessagingInterface::Message* a_msg) {
 
                 LoadBookMappings();
                 DynamicBookFramework::FileWatcher::Start();
+<<<<<<< Updated upstream
                 SetBookTextHook::Install();
+=======
+                BookHooks::Install();
+>>>>>>> Stashed changes
                 Settings::LoadSettings();
+
+                ModEventHandler::Register();
+
+                
             }
             break;
 

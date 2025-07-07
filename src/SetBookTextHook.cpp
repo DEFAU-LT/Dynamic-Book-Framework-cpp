@@ -4,6 +4,11 @@
 #include "BookMenuWatcher.h"
 #include "Utility.h"
 #include "PCH.h"
+<<<<<<< Updated upstream
+=======
+// #include "RE/B/BSScaleformExternalTexture.h"
+// #include "RE/B/BSTArray.h"
+>>>>>>> Stashed changes
 
 
 // --- Namespace alias for convenience ---
@@ -26,6 +31,7 @@ namespace SetBookTextHook {
     // static SetBookTextThunk_t g_rawOriginalThunkPtr = nullptr;
     void (*g_rawOriginalThunkPtr)(RE::GFxMovieView*, const char*, RE::FxResponseArgsBase*, std::uintptr_t) = nullptr;
 
+<<<<<<< Updated upstream
     
     void Detour_SetBookTextThunk(
         RE::GFxMovieView* rawMovieView_param, 
@@ -131,3 +137,94 @@ namespace SetBookTextHook {
     }
 
 } // namespace SetBookTextHook
+=======
+	auto* watcher = DynamicBookFramework::BookMenuWatcher::GetSingleton();
+	
+	RE::GFxValue* originalArgs = nullptr;
+	a_args.GetValues(&originalArgs); 
+	if (!originalArgs) {
+		return g_original_Invoke(a_view, a_funcName, a_args);
+	}
+	
+	const char* vanillaText = originalArgs[1].GetString();
+	if (vanillaText) {
+		watcher->CacheVanillaText(bookForm->GetName(), vanillaText);
+	}
+	
+	std::string rawBookText = watcher->GetFullDynamicTextForBook(bookForm);
+	if (rawBookText.empty()) {
+		return g_original_Invoke(a_view, a_funcName, a_args);
+	}
+	
+	// --- FINAL, SAFE IMAGE LOADING ---
+
+	std::vector<std::string> imagePaths = ExtractImagePathsFromText(rawBookText);
+	auto& textureArray = REL::RelocateMember<RE::BSTArray<RE::BSScaleformExternalTexture>>(bookMenu, 0x50, 0x60);
+	
+	// DO NOT CLEAR THE ARRAY. Only add textures that are new.
+	for (const auto& path : imagePaths) {
+		std::string fullImgPath = "img://" + path;
+		bool alreadyExists = false;
+		for (const auto& existingTexture : textureArray) {
+			if (existingTexture.filePath == fullImgPath.c_str()) {
+				alreadyExists = true;
+				break;
+			}
+		}
+
+		if (!alreadyExists) {
+			auto& newTexture = textureArray.emplace_back();
+			RE::BSFixedString bsPath(path);
+			if (newTexture.LoadPNG(bsPath) && newTexture.gamebryoTexture) {
+				newTexture.filePath = fullImgPath;
+			}
+		}
+	}
+
+	std::string finalHtml = HtmlFormatText::ApplyGeneralBookMarkup_ProcessChunk(rawBookText);
+	originalArgs[1].SetString(finalHtml.c_str());
+	
+	g_original_Invoke(a_view, a_funcName, a_args);
+
+    RE::FxResponseArgs<1> titleArg;
+	titleArg.Add(bookForm->GetName());
+	RE::FxDelegate::Invoke(a_view, "SetCurrentBookTitle", titleArg);
+
+	RE::FxResponseArgs<2> infoArgs;
+    infoArgs.Add(bookForm->GetFormID());
+    infoArgs.Add(bookForm->GetName());
+    RE::FxDelegate::Invoke2(a_view, "SetBookInfo", infoArgs);
+}
+
+
+	bool Install() {
+		// This hooks the call to FxDelegate::Invoke inside the game code.
+		REL::ID functionWithCall_ID;
+		uintptr_t offsetToThunkCall;
+		const auto& runtime = REL::Module::get();
+
+		if (runtime.IsAE()) {
+			functionWithCall_ID = REL::ID(51054);
+			offsetToThunkCall = 0x318;
+		} else if (runtime.IsSE()) {
+			functionWithCall_ID = REL::ID(50123);
+			offsetToThunkCall = 0x314;
+		} else {
+			return false;
+		}
+
+		uintptr_t callInstructionAddress = functionWithCall_ID.address() + offsetToThunkCall;
+		
+		auto& trampoline = SKSE::GetTrampoline();
+		g_original_Invoke = trampoline.write_call<5>(callInstructionAddress, reinterpret_cast<uintptr_t>(Detour_SetBookText));
+
+		if (g_original_Invoke.get()) {
+			logger::info("Final SetBookText hook installed successfully.");
+			return true;
+		}
+		
+		logger::error("Failed to install SetBookText hook.");
+		return false;
+	}
+}
+>>>>>>> Stashed changes

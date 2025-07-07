@@ -2,15 +2,36 @@
 #include "ImGuiMenu.h" // We need this to call ToggleMenu()
 #include "BookUIManager.h"
 #include "Settings.h"
+#include "SetBookTextHook.h" // You no longer need this for bookmarks
+#include "Utility.h"
 
-InputListener* InputListener::GetSingleton()
-{
+namespace { // Anonymous namespace for local helpers and state
+
+	// Helper to find a book form from its title string
+	RE::TESObjectBOOK* GetBookFormByTitle(const std::string& a_title) {
+		auto* dataHandler = RE::TESDataHandler::GetSingleton();
+		if (!dataHandler) return nullptr;
+		for (const auto& book : dataHandler->GetFormArray<RE::TESObjectBOOK>()) {
+			if (book && book->GetFullName() == a_title) {
+				return book;
+			}
+		}
+		return nullptr;
+	}
+
+	// State for tracking bookmark cycling
+	static int g_currentBookmarkIndex = -1;
+	static std::string g_lastBookTitleForCycle = "";
+}
+
+// All of your class's functions must be defined within its namespace
+
+InputListener* InputListener::GetSingleton() {
     static InputListener singleton;
     return &singleton;
 }
 
-void InputListener::Install()
-{
+void InputListener::Install() {
     auto* inputDeviceManager = RE::BSInputDeviceManager::GetSingleton();
     if (inputDeviceManager) {
         inputDeviceManager->AddEventSink(InputListener::GetSingleton());
@@ -18,93 +39,106 @@ void InputListener::Install()
     }
 }
 
-RE::BSEventNotifyControl InputListener::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*)
-{
-    if (!a_event || !*a_event) {
-        return RE::BSEventNotifyControl::kContinue;
+RE::BSEventNotifyControl InputListener::ProcessEvent(RE::InputEvent* const* a_event, RE::BSTEventSource<RE::InputEvent*>*) {
+    if (!a_event) return RE::BSEventNotifyControl::kContinue;
+
+    if (ImGuiRender::EditorWindow && ImGuiRender::EditorWindow->IsOpen) {
+        ImGuiIO* io = ImGui::GetIO();
+        if (io->WantCaptureKeyboard) {
+            // If ImGui is expecting keyboard input (e.g., you've clicked a text box),
+            // we "sink" the event, stopping it from ever reaching the game.
+            return RE::BSEventNotifyControl::kStop;
+        }
     }
 
-    if (Settings::isWaitingForHotkey) {
-        for (RE::InputEvent* event = *a_event; event; event = event->next) {
-            if (event->eventType.get() == RE::INPUT_EVENT_TYPE::kButton) {
-                const auto* buttonEvent = event->AsButtonEvent();
-                if (buttonEvent->IsDown() && buttonEvent->GetDevice() == RE::INPUT_DEVICE::kKeyboard) {
-                    const auto key = buttonEvent->GetIDCode();
-                    // Don't allow Escape (0x01) or unassigned keys (0) as the hotkey
-                    if (key != 0 && key != 0x01) {
-                        Settings::openMenuHotkey = key;
+    for (RE::InputEvent* event = *a_event; event; event = event->next) {
+        if (event->eventType.get() != RE::INPUT_EVENT_TYPE::kButton) continue;
+        
+        const auto* buttonEvent = event->AsButtonEvent();
+        if (!buttonEvent || !buttonEvent->IsDown() || buttonEvent->GetDevice() != RE::INPUT_DEVICE::kKeyboard) continue;
+        
+        const auto key = buttonEvent->GetIDCode();
+        auto* ui = RE::UI::GetSingleton();
+
+        // --- ImGui Editor Hotkey Logic ---
+        if (ImGuiRender::EditorWindow && ImGuiRender::EditorWindow->IsOpen) {
+            // ... (your logic for closing the editor) ...
+        } else {
+            if (key == static_cast<uint32_t>(Settings::openMenuHotkey)) {
+                ImGuiRender::ToggleMenu();
+                return RE::BSEventNotifyControl::kStop;
+            }
+        }
+
+       
+        // --- In-Game Book Menu Hotkey Logic ---
+        if (ui && ui->IsMenuOpen(RE::BookMenu::MENU_NAME)) {
+            auto menu = ui->GetMenu(RE::BookMenu::MENU_NAME);
+            auto* bookMenu = menu ? static_cast<RE::BookMenu*>(menu.get()) : nullptr;
+
+
+            if (bookMenu && bookMenu->uiMovie) {
+                auto& rtData = REL::RelocateMember<RE::BookMenu::RUNTIME_DATA>(bookMenu, 0x50, 0x60);
+                auto* movieView = rtData.book.get();
+                auto* currentBook = bookMenu->GetTargetForm();
+
+                if (!currentBook) continue;
+                std::string currentTitle = currentBook->GetName();
+
+                if (g_lastBookTitleForCycle != currentTitle) {
+                    g_currentBookmarkIndex = -1;
+                    g_lastBookTitleForCycle = currentTitle;
+                }
+
+                if (key == 0x2D) { // DirectX scancode for 'X' key
+                    RE::FxResponseArgs<0> emptyArgs;
+                    RE::FxDelegate::Invoke(movieView, "FocusTextInput", emptyArgs);
+                    logger::info("X key pressed, requesting text input focus...");
+                    return RE::BSEventNotifyControl::kStop;
+                }
+
+                if (key == 0x1C) { // DirectX scancode for 'Enter' key
+                    RE::FxResponseArgs<0> emptyArgs;
+                    RE::FxDelegate::Invoke(movieView, "SubmitTextInput", emptyArgs);
+                    logger::info("Enter key pressed, requesting text input submit...");
+                    return RE::BSEventNotifyControl::kStop;
+                }
+                // 2. Next/Previous Bookmark Hotkeys
+                if (key == static_cast<uint32_t>(Settings::nextBookmarkHotkey) || key == static_cast<uint32_t>(Settings::previousBookmarkHotkey)) {
+                    const auto& anchors = Settings::GetBookmarksForBook(currentTitle);
+                    if (anchors.empty()) {
+                        continue; // Exit if there are no bookmarks for this book.
                     }
-                    // We're done waiting, whether a key was set or not (e.g., user pressed Esc)
-                    Settings::isWaitingForHotkey = false;
-                    // Stop the key press from doing anything else in the game
+
+                    // --- NEW: Reset the index if the book has changed ---
+                    if (g_lastBookTitleForCycle != currentTitle) {
+                        g_currentBookmarkIndex = -1;
+                        g_lastBookTitleForCycle = currentTitle;
+                    }
+                    // --- END NEW ---
+
+                    if (key == static_cast<uint32_t>(Settings::nextBookmarkHotkey)) {
+                        g_currentBookmarkIndex++;
+                        if (g_currentBookmarkIndex >= static_cast<int>(anchors.size())) {
+                            g_currentBookmarkIndex = 0; // Wrap around to the start
+                        }
+                    } else { // Previous
+                        g_currentBookmarkIndex--;
+                        if (g_currentBookmarkIndex < 0) {
+                            g_currentBookmarkIndex = static_cast<int>(anchors.size()) - 1; // Wrap around to the end
+                        }
+                    }
+
+                    std::string targetAnchor = anchors[g_currentBookmarkIndex];
+
+                    RE::FxResponseArgs<1> gotoArgs;
+                    gotoArgs.Add(targetAnchor.c_str());
+                    RE::FxDelegate::Invoke(movieView, "GotoPageByAnchor", gotoArgs);
+
                     return RE::BSEventNotifyControl::kStop;
                 }
             }
         }
     }
-
-    constexpr uint32_t escapeKey = 27;      // ESC
-
-    for (RE::InputEvent* event = *a_event; event; event = event->next) {
-        if (event->eventType.get() != RE::INPUT_EVENT_TYPE::kButton)
-            continue;
-
-        const auto* buttonEvent = event->AsButtonEvent();
-        if (buttonEvent->GetDevice() != RE::INPUT_DEVICE::kKeyboard)
-            continue;
-
-        const auto key = buttonEvent->GetIDCode();
-
-        // ESC always closes the menu
-        if (key == escapeKey && buttonEvent->IsDown()) {
-            if (ImGuiRender::EditorWindow && ImGuiRender::EditorWindow->IsOpen) {
-                ImGuiRender::EditorWindow->IsOpen = false;
-                return RE::BSEventNotifyControl::kStop;
-            }
-        }
-
-        // Use the dynamic key from settings to toggle the menu
-        if (key == static_cast<uint32_t>(Settings::openMenuHotkey) && buttonEvent->IsDown()) {
-            ImGuiRender::ToggleMenu();
-            return RE::BSEventNotifyControl::kStop;
-        }
-
-        constexpr uint32_t leftControlKey = 0x1D; // DirectX Scancode for Left Control
-        static bool g_isControlHeld = false;
-        if (key == leftControlKey) {
-            // If the key is now down, AND it was NOT down before...
-            if (buttonEvent->IsDown() && !g_isControlHeld) {
-                
-                // Mark it as held to prevent spamming on subsequent frames.
-                g_isControlHeld = true;
-
-                // Now, send our single event.
-                auto* ui = RE::UI::GetSingleton();
-                if (ui && ui->IsMenuOpen(RE::BookMenu::MENU_NAME)) {
-                    RE::GPtr<RE::IMenu> menu = ui->GetMenu(RE::BookMenu::MENU_NAME);
-                    if (menu && menu->uiMovie) {
-                        SKSE::ModCallbackEvent modEvent{ "DBF_onToggleInputMode", "", 0.0f, nullptr };
-                        auto* modEventSource = SKSE::GetModCallbackEventSource();
-                        if (modEventSource) {
-                            modEventSource->SendEvent(&modEvent);
-                            SKSE::log::info("InputListener: Sent ONE 'DBF_onToggleInputMode' event to SWF.");
-                        }
-                    }
-                }
-            }
-            // If the key is now up, reset our state tracker.
-            else if (buttonEvent->IsUp()) {
-                g_isControlHeld = false;
-            }
-            // Stop the event either way to prevent the game from using the Ctrl key.
-            return RE::BSEventNotifyControl::kStop;
-        }
-    }
-
-    // If the menu is open, block all other input
-    if (ImGuiRender::EditorWindow && ImGuiRender::EditorWindow->IsOpen) {
-        return RE::BSEventNotifyControl::kStop;
-    }
-
     return RE::BSEventNotifyControl::kContinue;
 }

@@ -8,12 +8,19 @@
 // For this example, we'll use standard file I/O to keep it simple,
 namespace Settings {
 
+    static std::mutex _mutex;
     // Global variables with their default values
     std::string defaultFontFace = "$HandwrittenFont";
     int defaultFontSize = 20;
     std::vector<std::string> userDefinedFonts;
     int openMenuHotkey = 0x44; // Default to F10
     bool isWaitingForHotkey = false;
+    int bookmarkPageHotkey = 0x30;     // Default B
+    int nextBookmarkHotkey = 0x2F;     // Default V
+    int previousBookmarkHotkey = 0x2E; // Default C
+
+    // --- This will hold all our bookmarks ---
+    std::map<std::string, std::vector<std::string>> g_bookmarks;
 
     // The single path for our settings file
     const std::string settingsPath = "Data/SKSE/Plugins/DynamicBookFramework/Settings.ini";
@@ -24,21 +31,23 @@ namespace Settings {
         "$FalmerFont", "$DwemerFont", "$MageScriptFont"
     };
 
-    void SaveSettings() {
-        std::ofstream iniFile(settingsPath);
-        if (!iniFile.is_open()) {
-            logger::error("Failed to open {} for writing.", settingsPath);
-            return;
-        }
+	
+	void SaveSettings() {
+		std::ofstream iniFile(settingsPath);
+		if (!iniFile.is_open()) {
+			logger::error("Failed to open {} for writing.", settingsPath);
+			return;
+		}
 
-        logger::info("Saving settings to {}", settingsPath);
+		logger::info("Saving settings to {}", settingsPath);
+		
+		// --- Write [Hotkeys] ---
+		iniFile << "[Hotkeys]\n";
+		iniFile << "OpenMenu = " << GetNameFromScancode(openMenuHotkey) << "\n";
+		iniFile << "NextBookmark = " << GetNameFromScancode(nextBookmarkHotkey) << "\n";
+		iniFile << "PreviousBookmark = " << GetNameFromScancode(previousBookmarkHotkey) << "\n\n";
 
-        // Write Hotkeys section
-        std::string hotkeyNameToSave = GetNameFromScancode(openMenuHotkey);        
-        iniFile << "[Hotkeys]\n";
-        iniFile << "; The DirectX Scancode for the key that opens the menu.\n";
-        iniFile << "; A list of codes can be found here: https://ck.uesp.net/wiki/Input_Script#DXScanCodes\n";
-        iniFile << "OpenMenu = " << hotkeyNameToSave << "\n\n";
+        iniFile << "\n";
 
         // Write Appearance section
         iniFile << "[Appearance]\n";
@@ -67,6 +76,8 @@ namespace Settings {
                 iniFile << "UserFont" << userKey++ << " = " << font << "\n";
             }
         }
+
+        iniFile << "\n";
     }
 
     void LoadSettings() {
@@ -103,13 +114,22 @@ namespace Settings {
                     value.erase(0, value.find_first_not_of(" \t"));
                     if (key == "OpenMenu") {
                         // Read the string name (e.g., "F10") from the INI
-                        std::string hotkeyName = value;
+                        //std::string hotkeyName = value;
                         // Use our helper function to convert the name to a scancode
-                        openMenuHotkey = GetScancodeFromName(hotkeyName);
+                        openMenuHotkey = GetScancodeFromName(value);
                         // As a safety measure, if the name is invalid, default to F10
                         if (openMenuHotkey == 0) {
                             openMenuHotkey = 0x44; 
                         }
+                    } else if (key == "BookmarkPage") {
+                        bookmarkPageHotkey = GetScancodeFromName(value);
+                        if (bookmarkPageHotkey == 0) { bookmarkPageHotkey = 0x30; } // Default B
+                    } else if (key == "NextBookmark") {
+                        nextBookmarkHotkey = GetScancodeFromName(value);
+                        if (nextBookmarkHotkey == 0) { nextBookmarkHotkey = 0x2F; } // Default V
+                    } else if (key == "PreviousBookmark") {
+                        previousBookmarkHotkey = GetScancodeFromName(value);
+                        if (previousBookmarkHotkey == 0) { previousBookmarkHotkey = 0x2E; } // Default C
                     }
                 }
             } else if (currentSection == "[Appearance]") {
@@ -132,6 +152,7 @@ namespace Settings {
                     }
                 }
             }
+            
         }
         
         logger::info("Finished loading settings:");
@@ -140,6 +161,87 @@ namespace Settings {
         logger::info("  FontSize -> {}", defaultFontSize);
         for(const auto& font : userDefinedFonts) {
             logger::info("  Loaded Font -> {}", font);
+        }
+    }
+
+    void ScanAllBooksForBookmarks() {
+        std::lock_guard<std::mutex> lock(_mutex);
+        g_bookmarks.clear(); // Clear all old bookmarks first.
+        
+        const auto& bookMappings = GetAllBookMappings();
+
+        for (const auto& [title_w, path_w] : bookMappings) {
+            std::ifstream bookFile(path_w);
+            if (bookFile.is_open()) {
+                std::stringstream buffer;
+                buffer << bookFile.rdbuf();
+                std::string content = buffer.str();
+                
+                auto tags = ParseTagsFromText(content);
+                if (!tags.empty()) {
+                    g_bookmarks[wstring_to_utf8(title_w)] = tags;
+                }
+            }
+        }
+        logger::info("Finished scanning all books. Found bookmarks in {} books.", g_bookmarks.size());
+    }
+
+    std::vector<std::string> ParseTagsFromText(const std::string& text) {
+        std::vector<std::string> foundTags;
+        size_t searchPos = 0;
+        while ((searchPos = text.find("[bookmark", searchPos)) != std::string::npos) {
+            size_t endPos = text.find(']', searchPos);
+            if (endPos != std::string::npos) {
+                foundTags.push_back(text.substr(searchPos, endPos - searchPos + 1));
+                searchPos = endPos + 1;
+            } else {
+                searchPos += 1;
+            }
+        }
+
+        std::sort(foundTags.begin(), foundTags.end(), [](const std::string& a, const std::string& b) {
+            try {
+                int numA = std::stoi(a.substr(9));
+                int numB = std::stoi(b.substr(9));
+                return numA < numB;
+            } catch (...) {
+                return a < b;
+            }
+        });
+
+        return foundTags;
+    }
+
+    // This function now correctly adds a string to the vector.
+	void SaveBookmark(const std::string& bookTitle, const std::string& anchorTag) {
+        // The anchorTag is now the full tag, e.g., "[bookmark1]"
+        auto& anchors = g_bookmarks[bookTitle];
+        // Check if this exact tag is already saved to prevent duplicates.
+        if (std::find(anchors.begin(), anchors.end(), anchorTag) == anchors.end()) {
+            anchors.push_back(anchorTag);
+            SaveSettings(); // Save the updated list to the INI file.
+        }
+    }
+
+	// This function returns the list of anchors for a book.
+	const std::vector<std::string>& GetBookmarksForBook(const std::string& bookTitle) {
+		static const std::vector<std::string> empty_vector;
+		auto it = g_bookmarks.find(bookTitle);
+		return (it != g_bookmarks.end()) ? it->second : empty_vector;
+	}
+
+	// This function's return type is now correct.
+	const std::map<std::string, std::vector<std::string>>& GetAllBookmarks() {
+		return g_bookmarks;
+	}
+
+    void RemoveBookmark(const std::string& bookTitle) {
+        std::lock_guard<std::mutex> lock(_mutex);
+        // Erase the entry from the map. This removes all anchors for the book.
+        if (g_bookmarks.erase(bookTitle) > 0) {
+            logger::info("Removed all bookmarks for '{}'.", bookTitle);
+            // Save the changes back to the .ini file.
+            SaveSettings();
         }
     }
 

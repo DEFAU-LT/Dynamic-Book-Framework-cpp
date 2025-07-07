@@ -4,6 +4,11 @@
 #include "RE/Skyrim.h"
 #include "REL/Relocation.h"
 #include "SKSE/SKSE.h"
+<<<<<<< Updated upstream
+=======
+#include "SKSE/API.h"
+#include "RE/Offsets_VTABLE.h"
+>>>>>>> Stashed changes
 #include <SKSE/Impl/Stubs.h>
 
 // --- Logging (spdlog via CommonLibSSE) ---
